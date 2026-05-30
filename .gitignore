@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Project data & output directories
+data/
+results/
+
+# Temporary run assets
+tmp_fit_config.json
+tmp_continuity_*.json
