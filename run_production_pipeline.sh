@@ -6,7 +6,7 @@ echo "=== STARTING PRODUCTION END-TO-END PIPELINE ==="
 unset FAST_TEST
 
 echo "--- Phase 1: Reduction & Coordinate Alignment ---"
-/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/reduction/run_real_data_analysis.py
+/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/reduction/run_obs_data_analysis.py
 
 echo "--- Phase 2: Density Precomputation & MCMC Fitting ---"
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/density/fit_vvv_density.py
@@ -20,9 +20,9 @@ echo "--- Phase 1: Aligning coordinates ---"
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/reduction/align_all_h25c20.py
 
 echo "--- Phase 3: Fit Parametric & Combined Non-Parametric ---"
-/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/inversion/fit_real_parametric_h25c20.py
+/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/inversion/fit_obs_parametric_h25c20.py
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/inversion/compute_omega_uncertainty.py
-/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/inversion/fit_real_combined_h25c20.py
+/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/inversion/fit_obs_combined_h25c20.py
 
 echo "--- Phase 3: Diagnostics ---"
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/inversion/visualise_parametric_fit_h25c20.py

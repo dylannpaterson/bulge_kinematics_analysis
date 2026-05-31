@@ -21,7 +21,7 @@ from inversion_config import get_inverter_grid_axes
 # 1. Load SynthPop density & build potential
 # ─────────────────────────────────────────────────────────
 
-def get_synthpop_model(model_name="Besancon_Coleman2020_symmetric"):
+def get_synthpop_model(model_name="Huston2025_C20Bulge"):
     config = {
         "MANDATORY": {"name_for_output": "m2m_tmp", "model_name": model_name},
         "SIGHTLINES": {"l_set": [0.0], "l_set_type": "list", "b_set": [0.0], "b_set_type": "list", 
@@ -185,7 +185,7 @@ def get_np_target_kinematics(grid_params, axes_x, axes_y, axes_z, xc, yc, zc):
 # ─────────────────────────────────────────────────────────
 
 def main():
-    fit_path = os.path.join(project_root, "results/inversion/fit_results_real_combined_h25c20.npz")
+    fit_path = os.path.join(project_root, "results/inversion/fit_results_obs_combined_h25c20.npz")
     if not os.path.exists(fit_path):
         print(f"Error: {fit_path} not found.")
         return
@@ -200,7 +200,7 @@ def main():
     
     # 1. Build Triaxial Multipole Potential in Agama
     print("Loading SynthPop densities & building potential...")
-    total_density, bulge_density = get_synthpop_model("Besancon_Coleman2020_symmetric")
+    total_density, bulge_density = get_synthpop_model("Huston2025_C20Bulge")
     
     print("Generating Agama triaxial multipole potential...")
     full_pot = agama.Potential(type='Multipole', density=total_density, lmax=16, symmetry='triaxial', 

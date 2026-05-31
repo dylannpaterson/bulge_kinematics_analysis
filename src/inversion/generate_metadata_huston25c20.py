@@ -1,20 +1,36 @@
+"""
+Metadata precomputation for VVV, BRAVA, and GIBS spatial pixels using SynthPop.
+
+Computes Galactic-to-bar coordinate transformations, line-of-sight distance modulus
+shifts, selection fractions, and binned disk density/kinematics using SynthPop.
+Saves the binned metadata arrays as Pickle files ready for inversion.
+"""
+from __future__ import annotations
+
+import json
+import os
+import pickle
+import sys
+
 import jax
 import jax.numpy as jnp
 import numpy as np
-import sys
-import os
-import json
-import pickle
 import pandas as pd
 
 # Append paths
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../shared')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../synthpop')))
-import synthpop
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../shared")))
+sys.path.append(os.path.abspath(os.path.join(project_root, "synthpop")))
 
-from synthpop_moment_provider import SynthPopDiskMomentProvider
+import synthpop
+from inversion_config import (
+    BATCH_SIZE,
+    get_base_synthpop_config,
+    get_distance_grid,
+    get_inverter_grid_axes,
+)
 from jax_kinematic_inverter import BulgeKinematicInverter
-from inversion_config import get_distance_grid, BATCH_SIZE, get_inverter_grid_axes, get_base_synthpop_config
+from synthpop_moment_provider import SynthPopDiskMomentProvider
 
 def generate_metadata_batched(model_name, l_obs, b_obs, mag_bins, output_cache, band_name='2MASS_Ks'):
     n_bins = len(mag_bins) - 1
@@ -139,10 +155,14 @@ def parse_gibs_data(gibs_path):
                 parts = line.strip().split('|')
                 if len(parts) >= 4:
                     try:
-                        field_parts = parts[0].strip().split()
-                        if not field_parts:
-                            continue
-                        field = field_parts[0]
+                        first_col = parts[0].strip()
+                        if 'GIBS' in first_col:
+                            field = first_col.split('GIBS')[0].strip()
+                        else:
+                            field_parts = first_col.split()
+                            if not field_parts:
+                                continue
+                            field = field_parts[0]
                         coords = parts[2].strip().split()
                         glon = float(coords[0])
                         if glon > 180:
@@ -166,6 +186,7 @@ def parse_gibs_data(gibs_path):
         rv_disp=('rv', lambda x: np.std(x, ddof=1) if len(x) > 1 else 0.0),
         count=('rv', 'count')
     ).reset_index()
+    grouped = grouped[grouped['count'] > 10].dropna(subset=['rv_mean', 'rv_disp'])
     return grouped
 
 def main():
@@ -195,7 +216,7 @@ def main():
             l_arr = l_arr[:5]
             b_arr = b_arr[:5]
             print(f"FAST_TEST mode active: Only generating 5 metadata pixels for BRAVA")
-        generate_metadata_batched(model_name, l_arr, b_arr, np.array([8.2, 9.25]), os.path.join(project_root, 'results/inversion/huston25c20_brava_real_metadata.pkl'))
+        generate_metadata_batched(model_name, l_arr, b_arr, np.array([8.2, 9.25]), os.path.join(project_root, 'results/inversion/huston25c20_brava_obs_metadata.pkl'))
 
     # --- 3. GIBS ---
     gibs_txt = os.path.join(project_root, 'data/GIBS_full.txt')

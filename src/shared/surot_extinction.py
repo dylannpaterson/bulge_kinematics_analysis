@@ -1,84 +1,134 @@
-import pandas as pd
-import numpy as np
+"""
+Surot et al. (2020) 2-D extinction map wrapper.
+
+Loads the high-resolution Surot K_s extinction table, bins it onto a 0.01 deg
+grid, and exposes a fast RegularGridInterpolator for arbitrary (l, b) queries.
+A module-level singleton avoids repeated file I/O.
+"""
+from __future__ import annotations
+
 import os
+
+import numpy as np
+import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
+from scipy.stats import binned_statistic_2d
+
+# Default path — co-located with the synthpop package that ships the table.
+_DEFAULT_MAP_PATH = (
+    "/Users/paterson.35/Documents/synthpop/synthpop/data/extinction/surot_A_Ks_table.h5"
+)
+
+
+# ---------------------------------------------------------------------------
+# Main class
+# ---------------------------------------------------------------------------
 
 class SurotExtinction:
     """
-    Utility to interpolate the Surot et al. (2020) 2D extinction map.
-    Loads the map from the synthpop directory and provides a fast interpolator.
+    Interpolator for the Surot et al. (2020) 2-D K_s extinction map.
+
+    The raw map has ~0.0025 deg resolution.  On construction the table is
+    binned to 0.01 deg and a ``RegularGridInterpolator`` is built so that
+    subsequent queries are O(1).
+
+    Parameters
+    ----------
+    map_path : str, optional
+        Path to the HDF5 extinction table.  Defaults to the synthpop data
+        directory set in ``_DEFAULT_MAP_PATH``.
     """
-    
-    def __init__(self, map_path='/Users/paterson.35/Documents/synthpop/synthpop/data/extinction/surot_A_Ks_table.h5'):
+
+    def __init__(self, map_path: str = _DEFAULT_MAP_PATH) -> None:
         if not os.path.exists(map_path):
             raise FileNotFoundError(f"Surot map not found at {map_path}")
-        
-        print("Loading Surot map and building interpolator (this may take a moment)...")
-        df = pd.read_hdf(map_path, key='data')
-        
-        # Surot map is very high res (~0.0025 deg). 
-        # For general use, binning to 0.01 deg is usually sufficient and much faster/memory efficient.
-        # We'll build a regular grid interpolator on a 0.01 deg grid.
-        
-        l_min, l_max = df['l'].min(), df['l'].max()
-        b_min, b_max = df['b'].min(), df['b'].max()
-        
-        # Define grid
-        self.l_grid = np.arange(l_min, l_max + 0.01, 0.01)
-        self.b_grid = np.arange(b_min, b_max + 0.01, 0.01)
-        
-        # Bin data
-        from scipy.stats import binned_statistic_2d
+
+        print("Loading Surot map and building interpolator...")
+        df = pd.read_hdf(map_path, key="data")
+
+        l_min, l_max = df["l"].min(), df["l"].max()
+        b_min, b_max = df["b"].min(), df["b"].max()
+
+        l_grid = np.arange(l_min, l_max + 0.01, 0.01)
+        b_grid = np.arange(b_min, b_max + 0.01, 0.01)
+
         ret = binned_statistic_2d(
-            df['l'], df['b'], df['A_Ks'], 
-            statistic='mean', 
-            bins=[self.l_grid, self.b_grid]
+            df["l"], df["b"], df["A_Ks"],
+            statistic="mean",
+            bins=[l_grid, b_grid],
         )
-        
-        # Fill NaNs (if any) with a small value or nearest neighbor
+
         grid_values = ret.statistic
-        mask = np.isnan(grid_values)
-        if np.any(mask):
-            grid_values[mask] = 0.0 # Or some sensible default
-            
-        # Centers for the interpolator
-        l_centers = 0.5 * (self.l_grid[1:] + self.l_grid[:-1])
-        b_centers = 0.5 * (self.b_grid[1:] + self.b_grid[:-1])
-        
-        self.interp = RegularGridInterpolator(
-            (l_centers, b_centers), 
-            grid_values, 
-            bounds_error=False, 
-            fill_value=None
+        grid_values[np.isnan(grid_values)] = 0.0
+
+        l_centers = 0.5 * (l_grid[1:] + l_grid[:-1])
+        b_centers = 0.5 * (b_grid[1:] + b_grid[:-1])
+
+        self._interp = RegularGridInterpolator(
+            (l_centers, b_centers),
+            grid_values,
+            bounds_error=False,
+            fill_value=None,
         )
-        print("Interpolator ready.")
+        print("Surot interpolator ready.")
 
-    def get_A_Ks(self, l, b):
+    def get_a_ks(self, l: np.ndarray, b: np.ndarray) -> np.ndarray:
         """
-        Get A_Ks at Galactic longitude l and latitude b.
-        
-        Args:
-            l (float or np.ndarray): Longitude (deg), handled as [0, 360] -> [-180, 180]
-            b (float or np.ndarray): Latitude (deg)
-            
-        Returns:
-            np.ndarray: Interpolated A_Ks values
+        Return interpolated A_Ks at Galactic coordinates (l, b).
+
+        Longitude values in [180, 360] are wrapped to [-180, 0].
+
+        Parameters
+        ----------
+        l : array_like
+            Galactic longitude in degrees.
+        b : array_like
+            Galactic latitude in degrees.
+
+        Returns
+        -------
+        a_ks : np.ndarray
+            Interpolated K_s extinction values, same shape as input.
         """
-        # Handle coordinate wrapping if l is in [0, 360]
-        l = np.atleast_1d(l)
-        b = np.atleast_1d(b)
-        l_use = np.where(l > 180, l - 360, l)
-        
-        # Query interpolator
-        pts = np.vstack([l_use, b]).T
-        return self.interp(pts)
+        l = np.atleast_1d(np.asarray(l, dtype=float))
+        b = np.atleast_1d(np.asarray(b, dtype=float))
+        l_wrapped = np.where(l > 180, l - 360, l)
+        return self._interp(np.column_stack([l_wrapped, b]))
 
-# Global instance for easy access
-_instance = None
 
-def get_surot_A_Ks(l, b):
-    """Convenience function to get A_Ks using a shared instance."""
+# ---------------------------------------------------------------------------
+# Module-level singleton helper
+# ---------------------------------------------------------------------------
+
+_instance: SurotExtinction | None = None
+
+
+def get_surot_a_ks(l: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+    Return A_Ks from the shared SurotExtinction singleton.
+
+    Constructs the singleton on first call; subsequent calls reuse the
+    cached interpolator.
+
+    Parameters
+    ----------
+    l : array_like
+        Galactic longitude in degrees.
+    b : array_like
+        Galactic latitude in degrees.
+
+    Returns
+    -------
+    a_ks : np.ndarray
+        Interpolated K_s extinction.
+    """
     global _instance
     if _instance is None:
         _instance = SurotExtinction()
-    return _instance.get_A_Ks(l, b)
+    return _instance.get_a_ks(l, b)
+
+
+# Keep the old snake_case alias for backwards compatibility with existing callers.
+def get_surot_A_Ks(l: np.ndarray, b: np.ndarray) -> np.ndarray:  # noqa: N802
+    """Alias for :func:`get_surot_a_ks` retained for backwards compatibility."""
+    return get_surot_a_ks(l, b)
