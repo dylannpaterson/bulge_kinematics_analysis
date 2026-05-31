@@ -200,6 +200,51 @@ class BulgeKinematicInverter:
         dist_sq = dist**2
         return vmap(lambda k: self.integrate_mixed_bin(k, f_bulge, rb_sb, rd_sb, mu_b_pm_s, cov_b_pm_s, mu_b_rv_s, var_b_rv_s, mu_d_pm_sb, cov_d_pm_sb, mu_d_rv_sb, var_d_rv_sb, dist_sq, return_components))(jnp.arange(self.n_bins))
 
+    def compute_distance_posterior(self, grid_params, omega, pixel_meta, obs_mu, k=0, log_f_bulge=0.0):
+        """
+        Evaluates P(D | mu_l, mu_b) for a specific observed proper motion.
+        obs_mu: jnp.array([mu_l_observed, mu_b_observed])
+        k: magnitude bin index
+        """
+        import jax.scipy.stats as jstats
+        f_bulge = jax.nn.sigmoid(log_f_bulge)
+        xb, yb, zb = pixel_meta['x_bar'], pixel_meta['y_bar'], pixel_meta['z_bar']
+        dist = pixel_meta['d']
+        
+        P_pm, _, v_off_pm, _ = self.get_projection_matrix(pixel_meta['l'], pixel_meta['b'])
+        
+        def evaluate_distance_slice(i):
+            p_chol = self.interpolate_octant(xb[i], yb[i], zb[i], grid_params)
+            ux, uy, log_L11, L21, log_L22, log_L33 = p_chol
+            L11, L22, L33 = jnp.exp(log_L11), jnp.exp(log_L22), jnp.exp(log_L33)
+            sxx, sxy, syy, szz = L11**2, L11*L21, L21**2 + L22**2, L33**2
+            p_3d = self.apply_symmetries(xb[i], yb[i], zb[i], jnp.stack([ux, uy, sxx, syy, szz, sxy]))
+            
+            scale = 0.2108 / dist[i]
+            ux_total = p_3d[0] + omega * yb[i]
+            uy_total = p_3d[1] - omega * xb[i]
+            mu_b_pm = (P_pm @ jnp.stack([ux_total, uy_total, 0.0]) + v_off_pm) * scale
+            
+            c1 = jnp.stack([p_3d[2], p_3d[5], 0.0])
+            c2 = jnp.stack([p_3d[5], p_3d[3], 0.0])
+            c3 = jnp.stack([0.0, 0.0, p_3d[4]])
+            cov_3d = jnp.stack([c1, c2, c3])
+            cov_b_pm = (P_pm @ cov_3d @ P_pm.T) * (scale**2) + jnp.eye(2) * 1e-6
+            
+            pdf_b = jstats.multivariate_normal.pdf(obs_mu, mean=mu_b_pm, cov=cov_b_pm)
+            
+            mu_d_pm = pixel_meta['mu_d_pm'][i, k]
+            cov_d_pm = pixel_meta['cov_d_pm'][i, k] + jnp.eye(2) * 1e-6
+            pdf_d = jstats.multivariate_normal.pdf(obs_mu, mean=mu_d_pm, cov=cov_d_pm)
+            
+            wb = f_bulge * pixel_meta['rho_b'][i, k] * (dist[i]**2)
+            wd = (1.0 - f_bulge) * pixel_meta['rho_d'][i, k] * (dist[i]**2)
+            
+            return (wb * pdf_b + wd * pdf_d)
+
+        posterior = vmap(evaluate_distance_slice)(jnp.arange(len(dist)))
+        return posterior / (jnp.sum(posterior) + 1e-10)
+
     def predict_parametric(self, p_kosh, omega, alpha_rad, pixel_meta, log_f_bulge=0.0, return_components=False):
         f_bulge = jax.nn.sigmoid(log_f_bulge)
         v0_str, y0_str = p_kosh[0], p_kosh[1]

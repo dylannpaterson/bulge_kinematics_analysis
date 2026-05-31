@@ -129,7 +129,7 @@ def interpolate_velocity_field(
 
     for i in range(len(X_flat)):
         x_val, y_val, z_val = X_flat[i], Y_flat[i], Z_flat[i]
-        xo, yo, zo = np.abs(x_val), np.abs(y_val), np.abs(zo_val)
+        xo, yo, zo = np.abs(x_val), np.abs(y_val), np.abs(z_val)
 
         # Enforce bounds
         ix = np.clip(np.searchsorted(axes_x, xo) - 1, 0, NX - 2)
