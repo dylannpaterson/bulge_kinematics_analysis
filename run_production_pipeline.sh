@@ -34,6 +34,7 @@ echo "--- Phase 3: Diagnostics ---"
 echo "--- Phase 4: Made-to-Measure (M2M) validation & Animations ---"
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/m2m/validate_np_with_m2m.py
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/m2m/plot_m2m_validation.py
+/Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/m2m/plot_m2m_residuals.py
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/m2m/animate_m2m_flow.py
 /Users/paterson.35/anaconda3/bin/conda run -n bulge_env python src/m2m/animate_m2m_flow_bar.py
 

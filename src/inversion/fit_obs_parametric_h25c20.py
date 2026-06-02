@@ -213,7 +213,9 @@ def main() -> None:
     omega_init = getattr(kin, "omega_p", 50.0)
     alpha_rad = getattr(dens, "bar_ang", np.radians(18.43))
     fixed_alpha = np.degrees(alpha_rad)
-    xyz_scale = getattr(dens, "xyz_scale", 1.0)
+    x_scale = getattr(dens, "x_scale", 1.0)
+    y_scale = getattr(dens, "y_scale", 1.0)
+    z_scale = getattr(dens, "z_scale", 1.0)
 
     # f_bulge is fixed from the SynthPop model to preserve normalisation.
     raw_f_bulge = getattr(kin, "f_bulge", 0.5)
@@ -226,7 +228,9 @@ def main() -> None:
         "V_SUN_REL": sp.parms.sun.v - sp.parms.lsr["v_lsr"],
         "W_SUN": sp.parms.sun.w,
         "bar_angle_rad": alpha_rad,
-        "xyz_scale": xyz_scale,
+        "x_scale": x_scale,
+        "y_scale": y_scale,
+        "z_scale": z_scale,
     }
 
     # 1. Load Aligned Observed Data
@@ -398,7 +402,6 @@ def main() -> None:
     print("\n--- Combined OBSERVED DATA Parametric Optimization (H25C20) ---")
     print(f"Alpha dynamically fixed at: {fixed_alpha:.2f} deg")
     print(f"R0 dynamically set at: {solar['R0']:.3f} kpc")
-    print(f"XYZ_SCALE dynamically set at: {solar['xyz_scale']:.4f}")
     print(
         f"f_bulge fixed at: {raw_f_bulge:.4f} (logit={fixed_log_f_bulge:.4f}) — not a free parameter"
     )

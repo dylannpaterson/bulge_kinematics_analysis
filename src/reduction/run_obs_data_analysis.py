@@ -33,8 +33,8 @@ from src.shared.surot_extinction import get_surot_a_ks
 
 def clean_kinematics(
     df: pd.DataFrame,
-    max_err: float = 2.0,
-    sigma: float = 3.0,
+    max_err: float = 5.0,
+    sigma: float = 5.0,
     max_iter: int = 4,
     tol: float = 0.1,
 ) -> pd.DataFrame:
@@ -46,9 +46,9 @@ def clean_kinematics(
     df : pd.DataFrame
         Input DataFrame containing proper motions and errors.
     max_err : float, optional
-        Maximum allowed proper motion error in mas/yr. Default is 2.0.
+        Maximum allowed proper motion error in mas/yr. Default is 5.0.
     sigma : float, optional
-        Sigma multiplier for outlier clipping. Default is 3.0.
+        Sigma multiplier for outlier clipping. Default is 5.0.
     max_iter : int, optional
         Maximum number of clipping iterations. Default is 4.
     tol : float, optional

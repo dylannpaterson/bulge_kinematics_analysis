@@ -50,8 +50,10 @@ def generate_metadata_batched(model_name, l_obs, b_obs, mag_bins, output_cache, 
     os.remove(tmp_conf)
 
     bulge_pop = sp.populations[0]
-    xyz_scale = getattr(bulge_pop.population_density, 'xyz_scale', 1.0)
-    print(f"  Dynamically extracted xyz_scale: {xyz_scale}")
+    x_scale = getattr(bulge_pop.population_density, 'x_scale', 1.0)
+    y_scale = getattr(bulge_pop.population_density, 'y_scale', 1.0)
+    z_scale = getattr(bulge_pop.population_density, 'z_scale', 1.0)
+    print(f"  Dynamically extracted scales: X={x_scale}, Y={y_scale}, Z={z_scale}")
     
     # FIX: Koshimoto2021Bulge unit bug
     if hasattr(bulge_pop.kinematics, "y0_stream"):
@@ -87,7 +89,9 @@ def generate_metadata_batched(model_name, l_obs, b_obs, mag_bins, output_cache, 
         'V_SUN_REL': sp.parms.sun.v - v_lsr,
         'W_SUN': sp.parms.sun.w,
         'bar_angle_rad': density_alpha,
-        'xyz_scale': xyz_scale
+        'x_scale': x_scale,
+        'y_scale': y_scale,
+        'z_scale': z_scale
     }
     grid_axes = get_inverter_grid_axes()
     inverter = BulgeKinematicInverter(grid_axes, solar, n_bins=n_bins)

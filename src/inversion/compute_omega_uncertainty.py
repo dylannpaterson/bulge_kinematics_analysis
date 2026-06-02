@@ -68,7 +68,9 @@ def main() -> None:
         "V_SUN_REL": 12.2,
         "W_SUN": 7.78,
         "bar_angle_rad": alpha_rad,
-        "xyz_scale": 1.0,
+        "x_scale": 1.0,
+        "y_scale": 1.0,
+        "z_scale": 1.0,
     }
 
     # ── Load pre-computed metadata & observations ──────────────────────

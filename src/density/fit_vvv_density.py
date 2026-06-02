@@ -294,7 +294,9 @@ def run_precomputation():
     dens_model = bulge_pop.population_density
     bulge_params = {
         'n0_init': dens_model.n0_scale,
-        'xyz_init': dens_model.xyz_scale,
+        'x_init': dens_model.x_scale,
+        'y_init': dens_model.y_scale,
+        'z_init': dens_model.z_scale,
         'bar_ang_init_rad': dens_model.bar_ang
     }
 
@@ -315,7 +317,13 @@ def run_precomputation():
         active_indices=active_indices,
         sightline_mask=sightline_mask,
         C_conv=C_conv,
-        bulge_params=np.array([bulge_params['n0_init'], bulge_params['bar_ang_init_rad'], bulge_params['xyz_init']]),
+        bulge_params=np.array([
+            bulge_params['n0_init'], 
+            bulge_params['bar_ang_init_rad'], 
+            bulge_params['x_init'],
+            bulge_params['y_init'],
+            bulge_params['z_init']
+        ]),
         global_params=np.array([R0, Z0, theta_tilt])
     )
     print(f"\nPhase 1 Complete. Saved MCMC state to {cache_path} in {time.time() - t0:.2f} s")
@@ -325,22 +333,32 @@ def run_precomputation():
 # -----------------------------------------------------------------------------
 # LIKELIHOOD FUNCTION
 # -----------------------------------------------------------------------------
-def _pure_density(r, phi_rad, z, n0_scale, bar_ang_rad, xyz_scale, C20_PARAMS):
+def _pure_density(r, phi_rad, z, n0_scale, bar_ang_rad, x_scale, y_scale, z_scale, C20_PARAMS):
     p = C20_PARAMS
     alpha_rad = p['alpha'] * np.pi / 180.0
-    phi_coleman = alpha_rad - (phi_rad - bar_ang_rad)
-
-    x_c_gc = r * np.cos(phi_coleman) / xyz_scale
-    y_c_gc = r * np.sin(phi_coleman) / xyz_scale
-    z_c_gc = z / xyz_scale
-
-    x_coleman = x_c_gc + 8.0 - p['dx']
-    y_coleman = y_c_gc - p['dy']
-    z_coleman = z_c_gc - p['dz']
+    
+    x_gc = r * np.cos(phi_rad)
+    y_gc = r * np.sin(phi_rad)
+    
+    X_bar = x_gc * np.cos(bar_ang_rad) + y_gc * np.sin(bar_ang_rad)
+    Y_bar = -x_gc * np.sin(bar_ang_rad) + y_gc * np.cos(bar_ang_rad)
+    Z_bar = z
+    
+    X_bar_scaled = X_bar / x_scale
+    Y_bar_scaled = Y_bar / y_scale
+    Z_bar_scaled = Z_bar / z_scale
+    
+    x_fake = X_bar_scaled * np.cos(alpha_rad) - Y_bar_scaled * np.sin(alpha_rad)
+    y_fake = X_bar_scaled * np.sin(alpha_rad) + Y_bar_scaled * np.cos(alpha_rad)
+    z_fake = Z_bar_scaled
+    
+    x_coleman = x_fake + 8.0 - p['dx']
+    y_coleman = y_fake - p['dy']
+    z_coleman = z_fake - p['dz']
 
     from coleman_bulge_density import bulge_density_model
     rho = bulge_density_model.evaluate_symmetric(x=x_coleman, y=y_coleman, z=z_coleman)
-    return np.array(rho) * n0_scale * (xyz_scale ** -3)
+    return np.array(rho) * n0_scale / (x_scale * y_scale * z_scale)
 
 
 # -----------------------------------------------------------------------------
@@ -389,15 +407,15 @@ def init_worker(cache_path):
 
 def log_probability_worker(params):
     global data_dict_global
-    n0, alpha, xyz = params
-    if not (1e-3 <= n0 <= 10.0 and 0.0 <= alpha <= 90.0 and 0.1 <= xyz <= 3.0):
+    n0, alpha, xs, ys, zs = params
+    if not (1e-3 <= n0 <= 10.0 and 0.0 <= alpha <= 90.0 and 0.1 <= xs <= 3.0 and 0.1 <= ys <= 3.0 and 0.1 <= zs <= 3.0):
         return -np.inf
 
     bar_ang_rad = alpha * np.pi / 180.0
     
     rho_active = data_dict_global['_pure_density_func'](
         data_dict_global['r_active'], data_dict_global['phi_active'], data_dict_global['z_active'], 
-        float(n0), float(bar_ang_rad), float(xyz), data_dict_global['C20_PARAMS']
+        float(n0), float(bar_ang_rad), float(xs), float(ys), float(zs), data_dict_global['C20_PARAMS']
     )
     
     rho_raw = np.zeros((data_dict_global['n_active'], data_dict_global['n_dist']))
@@ -411,6 +429,64 @@ def log_probability_worker(params):
 
     eps = 1e-10
     return np.sum(data_dict_global['obs_active'] * np.log(pred + eps) - pred)
+
+
+# -----------------------------------------------------------------------------
+# PHASE 1.5: L-BFGS OPTIMIZATION
+# -----------------------------------------------------------------------------
+def run_lbfgs_phase(cache_path, init_angle=None):
+    print("\n====================================================================")
+    print("--- PHASE 1.5: Running L-BFGS Optimization ---")
+    print("====================================================================")
+    
+    t0 = time.time()
+    init_worker(cache_path) # Initialize global data in main process
+    
+    data = np.load(cache_path)
+    n0_init, bar_ang_init_rad, x_init, y_init, z_init = data['bulge_params']
+    R0, Z0, theta_tilt = data['global_params']
+    active_indices = data['active_indices']
+    
+    start_angle = init_angle if init_angle is not None else np.degrees(bar_ang_init_rad)
+    p0 = np.array([n0_init, start_angle, x_init, y_init, z_init])
+    p_names = ['n0_scale', 'bar_angle', 'x_scale', 'y_scale', 'z_scale']
+    bounds = [(1e-3, 10.0), (0.0, 90.0), (0.1, 3.0), (0.1, 3.0), (0.1, 3.0)]
+    
+    def nll(params):
+        lp = log_probability_worker(params)
+        if not np.isfinite(lp):
+            return 1e10
+        return -lp
+        
+    print(f"Starting L-BFGS optimization from p0: {p0}")
+    res = minimize(nll, p0, method='L-BFGS-B', bounds=bounds, options={'disp': True, 'maxiter': 200})
+    
+    print(f"\nL-BFGS Optimization Complete in {time.time() - t0:.2f} s")
+    print(f"Success: {res.success}")
+    print(f"Message: {res.message}")
+    print(f"Final NLL: {res.fun:.2f}")
+    print("Best Fit Parameters:")
+    for i, name in enumerate(p_names):
+        print(f"  {name:<15} : {res.x[i]:.5f}")
+        
+    json_path = os.path.join(project_root, 'results/density/vvv_fit_results.json')
+    
+    results_dict = {
+        'model_name': "Huston2025_C20Bulge",
+        'R0_kpc': float(R0),
+        'Z0_kpc': float(Z0),
+        'theta_tilt_deg': float(np.degrees(theta_tilt)),
+        'n_active_sightlines': int(len(active_indices)),
+        'lbfgs_success': bool(res.success),
+        'lbfgs_nll': float(res.fun),
+        'best_fit_parameters': {
+            p_names[i]: {'val': float(res.x[i])} for i in range(len(p_names))
+        }
+    }
+    with open(json_path, 'w') as f:
+        json.dump(results_dict, f, indent=4)
+    print(f"L-BFGS results saved to {json_path}")
+    return res.x
 
 
 # -----------------------------------------------------------------------------
@@ -442,12 +518,12 @@ def run_mcmc_phase(cache_path):
     active_indices = data['active_indices']
     sightline_mask = data['sightline_mask']
     
-    n0_init, bar_ang_init_rad, xyz_init = data['bulge_params']
+    n0_init, bar_ang_init_rad, x_init, y_init, z_init = data['bulge_params']
     R0, Z0, theta_tilt = data['global_params']
 
     # Starting parameters for MCMC
-    p_names = ['n0_scale', 'bar_angle', 'xyz_scale']
-    p0 = np.array([1.4, 18.0, 1.1])  # default fallback
+    p_names = ['n0_scale', 'bar_angle', 'x_scale', 'y_scale', 'z_scale']
+    p0 = np.array([1.4, 18.0, 1.1, 1.1, 1.1])  # default fallback
     
     # Load from L-BFGS results if available
     lbfgs_json = os.path.join(project_root, 'results/density/vvv_fit_results.json')
@@ -460,7 +536,9 @@ def run_mcmc_phase(cache_path):
                 p0 = np.array([
                     p_lbfgs['n0_scale']['val'],
                     p_lbfgs['bar_angle']['val'],
-                    p_lbfgs['xyz_scale']['val']
+                    p_lbfgs.get('x_scale', {'val': x_init})['val'],
+                    p_lbfgs.get('y_scale', {'val': y_init})['val'],
+                    p_lbfgs.get('z_scale', {'val': z_init})['val']
                 ])
                 print(f"Loaded L-BFGS best-fit parameters for MCMC initialization: {p0}")
         except Exception as e:
@@ -547,11 +625,11 @@ def run_mcmc_phase(cache_path):
     C_conv = data['C_conv']
 
     def get_pred_counts(params):
-        n0, alpha, xyz = params
+        n0, alpha, xs, ys, zs = params
         bar_ang_rad = alpha * np.pi / 180.0
         
         rho_active = _pure_density(r_sp_all[active_mask], phi_sp_all[active_mask], z_sp_all[active_mask], 
-                                   float(n0), float(bar_ang_rad), float(xyz), bulge_density_model.sym_params)
+                                   float(n0), float(bar_ang_rad), float(xs), float(ys), float(zs), bulge_density_model.sym_params)
         rho_raw = np.zeros((n_active, n_dist))
         rho_raw[active_mask] = rho_active
         pred_bulge_true = np.einsum('ij,ijk->ik', rho_raw, bulge_S_bins_weighted)
@@ -598,11 +676,20 @@ def run_mcmc_phase(cache_path):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--lbfgs', action='store_true', help='Run L-BFGS phase from cache')
     parser.add_argument('--mcmc', action='store_true', help='Run MCMC phase from cache')
+    parser.add_argument('--init_angle', type=float, default=None, help='Initial bar angle for L-BFGS (degrees)')
     args = parser.parse_args()
 
-    if not args.mcmc:
+    cache_path = os.path.join(project_root, 'results/density/mcmc_state_cache.npz')
+
+    if not args.lbfgs and not args.mcmc:
         cache_file = run_precomputation()
-        print(f"\nTo run MCMC, execute:\n  python3 fit_vvv_density.py --mcmc")
-    else:
-        run_mcmc_phase(os.path.join(project_root, 'results/density/mcmc_state_cache.npz'))
+        print(f"\nTo run L-BFGS, execute:\n  python3 fit_vvv_density.py --lbfgs")
+        print(f"To run MCMC, execute:\n  python3 fit_vvv_density.py --mcmc")
+        
+    if args.lbfgs:
+        run_lbfgs_phase(cache_path, init_angle=args.init_angle)
+        
+    if args.mcmc:
+        run_mcmc_phase(cache_path)

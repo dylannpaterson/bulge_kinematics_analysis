@@ -182,7 +182,7 @@ def main():
                                gridsizeR=100, rmin=0.01, rmax=50.0)
 
     # Pattern speed from NP model
-    omega = 37.67  # km/s/kpc
+    omega = 38.75  # km/s/kpc
 
     # 2. Sample particles using the M2M weights
     is_fast = os.environ.get("FAST_TEST") == "1"

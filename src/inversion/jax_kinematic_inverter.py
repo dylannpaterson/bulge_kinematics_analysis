@@ -112,9 +112,13 @@ class BulgeKinematicInverter:
         return jnp.stack([ux * jnp.sign(y), uy * jnp.sign(x), sxx, syy, szz, sxy * jnp.sign(x) * jnp.sign(y)])
 
     def interpolate_octant(self, x, y, z, grid_params):
-        ix = (jnp.abs(x) - self.grid_axes[0][0]) / (self.grid_axes[0][1] - self.grid_axes[0][0])
-        iy = (jnp.abs(y) - self.grid_axes[1][0]) / (self.grid_axes[1][1] - self.grid_axes[1][0])
-        iz = (jnp.abs(z) - self.grid_axes[2][0]) / (self.grid_axes[2][1] - self.grid_axes[2][0])
+        xs = self.solar_params.get('x_scale', 1.0)
+        ys = self.solar_params.get('y_scale', 1.0)
+        zs = self.solar_params.get('z_scale', 1.0)
+        
+        ix = (jnp.abs(x/xs) - self.grid_axes[0][0]) / (self.grid_axes[0][1] - self.grid_axes[0][0])
+        iy = (jnp.abs(y/ys) - self.grid_axes[1][0]) / (self.grid_axes[1][1] - self.grid_axes[1][0])
+        iz = (jnp.abs(z/zs) - self.grid_axes[2][0]) / (self.grid_axes[2][1] - self.grid_axes[2][0])
         coords = jnp.stack([ix, iy, iz])
         def interp_field(data):
             return jax.scipy.ndimage.map_coordinates(data, coords.reshape(3,1), order=1, mode='nearest').squeeze()

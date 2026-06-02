@@ -70,7 +70,9 @@ def main() -> None:
         "V_SUN_REL": 12.2,
         "W_SUN": 7.78,
         "bar_angle_rad": jnp.radians(fixed_alpha),
-        "xyz_scale": 1.0,
+        "x_scale": 1.0,
+        "y_scale": 1.0,
+        "z_scale": 1.0,
     }
 
     print(f"Loaded fitted omega: {omega_fit:.2f} km/s/kpc")
@@ -405,7 +407,9 @@ def main() -> None:
     )
     print(f"Alpha dynamically fixed at: {fixed_alpha:.2f} deg")
     print(f"R0 dynamically set at: {solar['R0']:.3f} kpc")
-    print(f"XYZ_SCALE dynamically set at: {solar['xyz_scale']:.4f}")
+    print(
+        f"Scales dynamically set at: x={solar['x_scale']:.4f}, y={solar['y_scale']:.4f}, z={solar['z_scale']:.4f}"
+    )
     print(f"f_bulge fixed at: {raw_f_bulge:.4f} (logit={fixed_log_f_bulge:.4f})")
 
     def scipy_objective(x_flat):
