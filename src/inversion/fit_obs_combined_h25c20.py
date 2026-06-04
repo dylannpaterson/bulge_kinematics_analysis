@@ -56,11 +56,12 @@ def main() -> None:
     h0_z = p_fitted[11:14]
     C_par_r, C_perp_r = p_fitted[14], p_fitted[15]
     C_par_z, C_perp_z = p_fitted[16], p_fitted[17]
-    omega_fit = p_fitted[18]
+    rho_xy_fit = p_fitted[18]
+    omega_fit = p_fitted[19]
 
-    # Extra parameters saved in res.x indices 19 and 20:
-    fixed_alpha = float(p_fitted[19])  # 18.43 deg
-    raw_f_bulge = float(p_fitted[20])  # 0.50
+    # Extra parameters saved in res.x indices 20 and 21:
+    fixed_alpha = float(p_fitted[20])  # 18.43 deg
+    raw_f_bulge = float(p_fitted[21])  # 0.50
     fixed_log_f_bulge = float(np.log(raw_f_bulge / (1.0 - raw_f_bulge)))  # logit
 
     solar = {
@@ -170,32 +171,21 @@ def main() -> None:
     # 4. Custom Anisotropic KL Divergence Penalty
     @jit
     def custom_kl_divergence_penalty(grid_params):
-        ux, uy, log_L11, L21, log_L22, log_L33 = (
-            grid_params[..., 0],
-            grid_params[..., 1],
-            grid_params[..., 2],
-            grid_params[..., 3],
-            grid_params[..., 4],
-            grid_params[..., 5],
-        )
+        ux, uy, log_L11, L21, log_L22, L31, L32, log_L33 = [grid_params[..., i] for i in range(8)]
 
         L11_sq = jnp.exp(2 * log_L11)
         L22_sq = jnp.exp(2 * log_L22)
         L33_sq = jnp.exp(2 * log_L33)
-        L21_sq = L21**2
+        L21_sq, L31_sq, L32_sq = L21**2, L31**2, L32**2
 
         tr_term = (
             L11_sq / (sig_x_prior**2)
             + (L21_sq + L22_sq) / (sig_y_prior**2)
-            + L33_sq / (sig_z_prior**2)
+            + (L31_sq + L32_sq + L33_sq) / (sig_z_prior**2)
         )
-        mu_term = (ux - ux_prior) ** 2 / (sig_x_prior**2) + (uy - uy_prior) ** 2 / (
-            sig_y_prior**2
-        )
+        mu_term = (ux - ux_prior) ** 2 / (sig_x_prior**2) + (uy - uy_prior) ** 2 / (sig_y_prior**2)
 
-        log_det_prior = 2.0 * (
-            jnp.log(sig_x_prior) + jnp.log(sig_y_prior) + jnp.log(sig_z_prior)
-        )
+        log_det_prior = 2.0 * (jnp.log(sig_x_prior) + jnp.log(sig_y_prior) + jnp.log(sig_z_prior))
         log_det_sigma = 2.0 * (log_L11 + log_L22 + log_L33)
 
         kl = 0.5 * (tr_term + mu_term - 3.0 + log_det_prior - log_det_sigma)
@@ -348,7 +338,7 @@ def main() -> None:
 
         # Curvature Regularization
         curv_reg = 0.0
-        for p in range(6):
+        for p in range(8):
             field = grid_params[..., p]
             curv_reg += (
                 jnp.mean(jnp.diff(field, n=2, axis=0) ** 2)
@@ -381,9 +371,9 @@ def main() -> None:
 
     val_and_grad_fn = jit(value_and_grad(joint_loss_fn, has_aux=True))
 
-    # 7. Initialize Grid Exactly from the Fitted Parametric Model Prior
+    # 7. Initialize Grid Exactly from the Fitted Parametric Model Prior (8 params)
     print("\nInitializing grid from the optimized parametric prior...")
-    grid_shape = inverter_v.shape + (6,)
+    grid_shape = inverter_v.shape + (8,)
     current_grid = np.zeros(grid_shape)
 
     current_grid[..., 0] = np.array(ux_prior)
@@ -391,7 +381,9 @@ def main() -> None:
     current_grid[..., 2] = np.log(np.array(sig_x_prior))
     current_grid[..., 3] = np.zeros(inverter_v.shape)  # L21 = 0
     current_grid[..., 4] = np.log(np.array(sig_y_prior))
-    current_grid[..., 5] = np.log(np.array(sig_z_prior))
+    current_grid[..., 5] = np.zeros(inverter_v.shape)  # L31 = 0
+    current_grid[..., 6] = np.zeros(inverter_v.shape)  # L32 = 0
+    current_grid[..., 7] = np.log(np.array(sig_z_prior))
 
     # Add small perturbation to break symmetry
     key = jax.random.PRNGKey(42)
@@ -437,12 +429,14 @@ def main() -> None:
     x0 = np.concatenate([current_grid.flatten(), [initial_omega]])
 
     grid_bounds = [
-        (-400, 400),
-        (-400, 400),
-        (1.6, 6.0),
-        (-400, 400),
-        (1.6, 6.0),
-        (1.6, 6.0),
+        (-400, 400), # ux
+        (-400, 400), # uy
+        (1.6, 6.0),  # log_L11
+        (-400, 400), # L21
+        (1.6, 6.0),  # log_L22
+        (-400, 400), # L31
+        (-400, 400), # L32
+        (1.6, 6.0),  # log_L33
     ] * np.prod(grid_shape[:-1])
     omega_bounds = [(0, 100.0)]
     bounds = grid_bounds + omega_bounds

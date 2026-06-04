@@ -1,0 +1,90 @@
+{
+    "MANDATORY": {
+        "name_for_output": "np_kinematics_test",
+        "model_name": "Huston2025_C20Bulge"
+    },
+
+    "SIGHTLINES": {
+        "l_set": [5.0, 0.0],
+        "l_set_type": "list",
+        "b_set": [-3.0, -9.0],
+        "b_set_type": "list",
+        "solid_angle": 0.16,
+        "solid_angle_unit": "deg^2"
+    },
+
+
+    "EXTINCTION_MAP": {
+        "extinction_map_kwargs": {
+            "name": "Surot",
+            "project_3d": true,
+            "dist_2d": 8.15
+        },
+        "extinction_law_kwargs": [
+            {
+                "name": "SODC",
+                "R_V": 2.5
+            }
+        ]
+    },
+
+    "POPULATION_GENERATION": {
+        "max_distance": 25,
+        "distance_step_size": 0.05,
+        "window_type": {
+            "window_type": "cone"
+        },
+        "mass_lims": {
+            "min_mass": 0.15,
+            "max_mass": 150
+        },
+        "N_mc_totmass": 10000,
+        "lost_mass_option": 1,
+        "N_av_mass": 50000,
+        "kinematics_at_the_end": false,
+        "scale_factor": 1,
+        "skip_lowmass_stars": true,
+        "chunk_size": 25000
+    },
+
+    "ISOCHRONE_INTERPOLATION": {
+        "evolution_class": {
+            "name": "MIST",
+            "interpolator": "CharonInterpolator"
+        }
+    },
+
+    "PHOTOMETRIC_OUTPUTS": {
+        "chosen_bands": [
+            "2MASS_J",
+            "2MASS_H",
+            "2MASS_Ks"
+        ],
+        "maglim": [
+            "2MASS_Ks",
+            18,
+            "remove"
+        ],
+        "obsmag": true,
+        "opt_iso_props": [
+            "log_L",
+            "log_Teff",
+            "log_g",
+            "[Fe/H]",
+            "log_R",
+            "phase"
+        ]
+    },
+
+    "OUTPUT": {
+        "output_location": "results/synthpop_np_test/",
+        "output_file_type": "csv",
+        "overwrite": true,
+        "post_processing_kwargs": [
+            {
+                "name": "ProcessDarkCompactObjects",
+                "remove": false
+            }
+        ]
+    }
+}

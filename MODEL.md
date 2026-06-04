@@ -27,11 +27,20 @@ This mapping assumes the bar nearside is oriented towards $y < 0$ (negative Gala
 The model reconstructs the intrinsic 3D kinematic fields—the mean velocity vector $\vec{\mu}_{3D}(\vec{x})$ and the velocity dispersion tensor $\Sigma_{int}(\vec{x})$—across a discrete spatial grid in the bar frame.
 
 ### Non-Parametric Grid (Nodes)
-$\Sigma_{int}$ is parameterized via a lower-triangular Cholesky decomposition, $\mathbf{L}$, to ensure it remains symmetric and positive semi-definite:
-$$\Sigma_{int}(\vec{x}) = \mathbf{L}(\vec{x})\mathbf{L}(\vec{x})^T = \begin{pmatrix} L_{11} & 0 & 0 \\ L_{21} & L_{22} & 0 \\ 0 & 0 & L_{33} \end{pmatrix} \begin{pmatrix} L_{11} & L_{21} & 0 \\ 0 & L_{22} & 0 \\ 0 & 0 & L_{33} \end{pmatrix}$$
+$\Sigma_{int}$ is parameterized via a full lower-triangular Cholesky decomposition, $\mathbf{L}$, to ensure it remains symmetric and positive semi-definite:
+$$\Sigma_{int}(\vec{x}) = \mathbf{L}(\vec{x})\mathbf{L}(\vec{x})^T = \begin{pmatrix} L_{11} & 0 & 0 \\ L_{21} & L_{22} & 0 \\ L_{31} & L_{32} & L_{33} \end{pmatrix} \begin{pmatrix} L_{11} & L_{21} & L_{31} \\ 0 & L_{22} & L_{32} \\ 0 & 0 & L_{33} \end{pmatrix}$$
 
-The optimized parameters at each node are $\theta = \{u_x, u_y, \log L_{11}, L_{21}, \log L_{22}, \log L_{33}\}$. We assume triaxial symmetries:
+This results in the following individual components of the intrinsic velocity ellipsoid tensor:
+- $\sigma_{xx} = L_{11}^2$
+- $\sigma_{yy} = L_{21}^2 + L_{22}^2$
+- $\sigma_{zz} = L_{31}^2 + L_{32}^2 + L_{33}^2$
+- $\sigma_{xy} = L_{11} L_{21}$
+- $\sigma_{xz} = L_{11} L_{31}$
+- $\sigma_{yz} = L_{21} L_{31} + L_{22} L_{32}$
+
+The optimized parameters at each node are $\theta = \{u_x, u_y, \log L_{11}, L_{21}, \log L_{22}, L_{31}, L_{32}, \log L_{33}\}$. We assume triaxial symmetries for the streaming velocity:
 $$\vec{\mu}_{3D}(\vec{x}) = \begin{pmatrix} u_x(|x|, |y|, |z|) \cdot \text{sgn}(y) \\ u_y(|x|, |y|, |z|) \cdot \text{sgn}(x) \\ 0 \end{pmatrix}$$
+
 
 ### Parametric Reference Model
 For initialization and priors, a Koshimoto-style parametric form is used. Streaming velocity follows a sigmoid profile along the major axis, and velocity dispersion follows a core-disk profile.
@@ -79,6 +88,20 @@ The 5 density parameters are optimized against VVV star counts using a Poisson l
 2. **MCMC Sampling**: Explores the parameter space (including degeneracies between $\alpha$ and scales) to provide full posterior uncertainties.
 
 ### Stage 2: Kinematic Inversion
-The kinematic grid parameters are optimized by minimizing the negative log-likelihood of the proper motion and radial velocity distributions:
-$$\mathcal{L} = \sum_{pixels} \sum_{bins} \left[ \ln |\Sigma_{pred}| + \text{Tr}(\Sigma_{pred}^{-1} \Sigma_{obs}) + (\Delta\vec{\mu})^T \Sigma_{pred}^{-1} \Delta\vec{\mu} \right] + \lambda_{KL} S_{KL}$$
-A Kullback-Leibler (KL) divergence penalty $S_{KL}$ is applied against the parametric model to regularize poorly constrained regions.
+The kinematic grid parameters are optimized by minimizing the negative log-likelihood of the proper motion and radial velocity distributions, regularized by both a prior constraint (KL divergence) and a mass conservation constraint (divergence penalty):
+$$\mathcal{L} = \mathcal{L}_{NLL} + \lambda_{KL} S_{KL} + \lambda_{div} S_{div}$$
+
+where:
+1. **Negative Log-Likelihood ($\mathcal{L}_{NLL}$)**:
+   $$\mathcal{L}_{NLL} = \sum_{pixels} \sum_{bins} \left[ \ln |\Sigma_{pred}| + \text{Tr}(\Sigma_{pred}^{-1} \Sigma_{obs}) + (\Delta\vec{\mu})^T \Sigma_{pred}^{-1} \Delta\vec{\mu} \right]$$
+2. **Kullback-Leibler Penalty ($S_{KL}$)**:
+   A KL divergence penalty applied against the parametric model to regularize poorly constrained grid nodes.
+3. **Divergence Penalty ($S_{div}$)**:
+   Enforces the steady-state continuity equation (mass conservation) in the rotating bar frame:
+   $$\nabla \cdot \vec{J} = \nabla \cdot (\rho \vec{u}) = 0$$
+   where $\rho$ is the 3D stellar density and $\vec{u}$ is the 3D streaming velocity vector field in the bar frame.
+   
+   The penalty is computed as the mean-squared divergence error over a set of $N_{coll}$ collocation points:
+   $$S_{div} = \frac{1}{N_{coll}} \sum_{n=1}^{N_{coll}} \left( \nabla \cdot \vec{J}(\vec{x}_n) \right)^2$$
+   The gradients are evaluated analytically using JAX's forward-mode automatic differentiation.
+

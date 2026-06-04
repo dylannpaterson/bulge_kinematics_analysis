@@ -1,9 +1,9 @@
 """
-Visualization diagnostics for the non-parametric kinematic inversion.
+Visualization diagnostics for the refined non-parametric kinematic inversion (with continuity).
 
 Generates binned proper-motion component maps, dispersion maps, correlation maps, and
 radial velocity normalized residual histograms, comparing the VVV, BRAVA, and GIBS
-observational datasets against the inverted non-parametric kinematic grid.
+observational datasets against the refined non-parametric kinematic grid.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from jax_kinematic_inverter import BulgeKinematicInverter
 
 
 def main() -> None:
-    """Generate diagnostic maps and plots for the non-parametric inversion."""
+    """Generate diagnostic maps and plots for the refined non-parametric inversion."""
     if os.environ.get("FAST_TEST") == "1":
         print("FAST_TEST mode active: skipping complex 2D contour plotting.")
         return
@@ -53,23 +53,23 @@ def main() -> None:
     log_f_bulge = float(np.log(raw_f_bulge / (1.0 - raw_f_bulge)))  # logit
     alpha_rad = np.radians(alpha_deg)
 
-    # 1. Load Non-Parametric Fit Results
+    # 1. Load Refined Fit Results
     fit_path = os.path.join(
-        project_root, "results/inversion/fit_results_obs_combined_h25c20.npz"
+        project_root, "results/inversion/fit_results_refined_continuity.npz"
     )
     if not os.path.exists(fit_path):
         raise FileNotFoundError(
-            f"Non-parametric fit results not found at {fit_path}. "
-            "Please run the fit script first."
+            f"Refined fit results not found at {fit_path}. "
+            "Please run the refinement script first."
         )
 
-    print(f"Loading non-parametric fit results from {fit_path}...")
+    print(f"Loading refined fit results from {fit_path}...")
     fit_res = np.load(fit_path)
     grid_params = jnp.array(fit_res["grid"])
     omega = float(fit_res["omega"])
     grid_axes = [fit_res["axes_x"], fit_res["axes_y"], fit_res["axes_z"]]
 
-    print(f"Loaded non-parametric grid parameters of shape {grid_params.shape}")
+    print(f"Loaded refined grid parameters of shape {grid_params.shape}")
     print(
         f"Pattern Speed Omega: {omega:.2f} km/s/kpc, Bar Angle: {alpha_deg:.2f} deg, f_bulge: {raw_f_bulge:.2f}"
     )
@@ -111,7 +111,7 @@ def main() -> None:
         for k, v in meta_v.items()
     }
 
-    print("Predicting VIRAC2 proper motions from the non-parametric grid...")
+    print("Predicting VIRAC2 proper motions from the refined grid...")
     pred_v = vmap(
         lambda m: inverter_v.predict_pixel(
             grid_params, omega, m, log_f_bulge=log_f_bulge, return_components=True
@@ -341,7 +341,7 @@ def main() -> None:
             ax_frac.set_aspect("equal")
 
         plt.suptitle(
-            fr"H25C20 Observed Data Non-Parametric Fit: Proper Motion $\mu_{comp_name}$",
+            fr"H25C20 Observed Data Refined Fit (with Continuity): Proper Motion $\mu_{comp_name}$",
             fontsize=16,
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -531,7 +531,7 @@ def main() -> None:
             ax_frac.set_aspect("equal")
 
         plt.suptitle(
-            fr"H25C20 Observed Data Non-Parametric Fit: Proper Motion {metric_name}",
+            fr"H25C20 Observed Data Refined Fit (with Continuity): Proper Motion {metric_name}",
             fontsize=16,
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -544,24 +544,24 @@ def main() -> None:
     out_dir = os.path.join(project_root, "results/inversion")
     os.makedirs(out_dir, exist_ok=True)
 
-    plot_component(0, "l", os.path.join(out_dir, "non_parametric_fit_mu_l_h25c20.png"))
-    plot_component(1, "b", os.path.join(out_dir, "non_parametric_fit_mu_b_h25c20.png"))
+    plot_component(0, "l", os.path.join(out_dir, "refined_fit_mu_l_h25c20.png"))
+    plot_component(1, "b", os.path.join(out_dir, "refined_fit_mu_b_h25c20.png"))
 
     print("Generating dispersion and correlation plots...")
     plot_covariance_metric(
         "sig_l",
         "Dispersion l",
-        os.path.join(out_dir, "non_parametric_fit_sigma_l_h25c20.png"),
+        os.path.join(out_dir, "refined_fit_sigma_l_h25c20.png"),
     )
     plot_covariance_metric(
         "sig_b",
         "Dispersion b",
-        os.path.join(out_dir, "non_parametric_fit_sigma_b_h25c20.png"),
+        os.path.join(out_dir, "refined_fit_sigma_b_h25c20.png"),
     )
     plot_covariance_metric(
         "corr",
         "Correlation",
-        os.path.join(out_dir, "non_parametric_fit_correlation_h25c20.png"),
+        os.path.join(out_dir, "refined_fit_correlation_h25c20.png"),
     )
 
     # 4. Plot Radial Velocity Residual Histograms (BRAVA and GIBS)
@@ -617,20 +617,20 @@ def main() -> None:
     plt.grid(True, alpha=0.3)
 
     plt.suptitle(
-        "H25C20 Observed Data Non-Parametric Fit: Radial Velocity Norm. Residuals",
+        "H25C20 Observed Data Refined Fit (with Continuity): Radial Velocity Norm. Residuals",
         fontsize=13,
         fontweight="bold",
     )
     plt.tight_layout()
     plt.savefig(
-        os.path.join(out_dir, "non_parametric_fit_rv_residuals_h25c20.png"), dpi=200
+        os.path.join(out_dir, "refined_fit_rv_residuals_h25c20.png"), dpi=200
     )
     plt.close()
     print(
-        f"Saved {os.path.join(out_dir, 'non_parametric_fit_rv_residuals_h25c20.png')}"
+        f"Saved {os.path.join(out_dir, 'refined_fit_rv_residuals_h25c20.png')}"
     )
 
-    print("\nNon-parametric visualization diagnostics complete!")
+    print("\nRefined non-parametric visualization diagnostics complete!")
 
 
 if __name__ == "__main__":

@@ -298,9 +298,17 @@ def main() -> None:
     # 3. Define Masked Parametric Loss
     @jit
     def combined_loss(params):
-        p_kosh = params[:18]
-        omega = params[18]
+        p_kosh = params[:19]
+        omega = params[19]
         alpha_d = fixed_alpha
+        
+        # Gaussian priors on central velocity dispersions
+        # (sig_i0_x, sig_i0_y, sig_i0_z are indices 2, 4, 6)
+        prior_penalty = 0.0
+        prior_penalty += 0.5 * ((p_kosh[2] - 135.0) / 5.0)**2
+        prior_penalty += 0.5 * ((p_kosh[4] - 105.0) / 5.0)**2
+        prior_penalty += 0.5 * ((p_kosh[6] - 96.0) / 5.0)**2
+        
         loss_v = get_masked_parametric_nll(
             inverter_v,
             (p_kosh, omega, alpha_d, fixed_log_f_bulge),
@@ -328,7 +336,7 @@ def main() -> None:
             obs_mu_err_rv=obs_mu_err_g,
             mask=mask_g,
         )
-        return loss_v + loss_b + loss_g
+        return loss_v + loss_b + loss_g + prior_penalty
 
     val_and_grad_fn = jit(value_and_grad(combined_loss))
 
@@ -352,6 +360,7 @@ def main() -> None:
         C_perp_r,
         C_par_z,
         C_perp_z,  # C params
+        -20.0,     # rho_xy (Scaled by 100. Starts at physical -0.2)
         omega_init,  # omega
     ])
 
@@ -374,6 +383,7 @@ def main() -> None:
         (0.5, 20.0),
         (0.5, 10.0),
         (0.5, 20.0),  # C params
+        (-95.0, 95.0), # rho_xy (Scaled. Safely bounds real correlation to +/- 0.95)
         (0, 150),  # omega
     ]
 
@@ -396,6 +406,7 @@ def main() -> None:
         "C_perp_r",
         "C_par_z",
         "C_perp_z",
+        "rho_xy",
         "omega",
     ]
 
@@ -412,7 +423,7 @@ def main() -> None:
             scipy_obj.n = 0
         if scipy_obj.n % 10 == 0:
             print(
-                f"  Iter {scipy_obj.n:3d}: Loss={l:12.4f}, v0={x[0]:.2f}, omega={x[18]:.2f}, f_bulge={raw_f_bulge:.4f} (fixed)"
+                f"  Iter {scipy_obj.n:3d}: Loss={l:12.4f}, v0={x[0]:.2f}, omega={x[19]:.2f}, rho_xy={x[18]:.2f}, f_bulge={raw_f_bulge:.4f} (fixed)"
             )
         scipy_obj.n += 1
         return float(l), np.array(g).astype(np.float64)
@@ -433,10 +444,10 @@ def main() -> None:
     output_path = os.path.join(
         project_root, "results/inversion/parametric_fit_results_obs_h25c20.npz"
     )
-    full_params = np.zeros(21)
-    full_params[:19] = res.x  # 19 free params
-    full_params[19] = fixed_alpha  # alpha (fixed)
-    full_params[20] = raw_f_bulge  # f_bulge (fixed from SynthPop)
+    full_params = np.zeros(22)
+    full_params[:20] = res.x  # 20 free params
+    full_params[20] = fixed_alpha  # alpha (fixed)
+    full_params[21] = raw_f_bulge  # f_bulge (fixed from SynthPop)
     np.savez(output_path, params=full_params, names=p_names + ["alpha", "f_bulge"])
     print(f"\nResults saved to {output_path}")
 

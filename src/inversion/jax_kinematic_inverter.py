@@ -108,8 +108,15 @@ class BulgeKinematicInverter:
         return jnp.stack([xb, yb, xyz_gc[2]])
 
     def apply_symmetries(self, x, y, z, p_oct):
-        ux, uy, sxx, syy, szz, sxy = p_oct
-        return jnp.stack([ux * jnp.sign(y), uy * jnp.sign(x), sxx, syy, szz, sxy * jnp.sign(x) * jnp.sign(y)])
+        ux, uy, sxx, syy, szz, sxy, sxz, syz = p_oct
+        return jnp.stack([
+            ux * jnp.sign(y), 
+            uy * jnp.sign(x), 
+            sxx, syy, szz, 
+            sxy * jnp.sign(x) * jnp.sign(y),
+            sxz * jnp.sign(x) * jnp.sign(z),
+            syz * jnp.sign(y) * jnp.sign(z)
+        ])
 
     def interpolate_octant(self, x, y, z, grid_params):
         xs = self.solar_params.get('x_scale', 1.0)
@@ -176,20 +183,30 @@ class BulgeKinematicInverter:
         
         def body(i):
             p_chol = self.interpolate_octant(xb[i], yb[i], zb[i], grid_params)
-            ux, uy, log_L11, L21, log_L22, log_L33 = p_chol
+            ux, uy, log_L11, L21, log_L22, L31, L32, log_L33 = p_chol
             L11, L22, L33 = jnp.exp(log_L11), jnp.exp(log_L22), jnp.exp(log_L33)
-            sxx, sxy, syy, szz = L11**2, L11*L21, L21**2 + L22**2, L33**2
-            p_3d = self.apply_symmetries(xb[i], yb[i], zb[i], jnp.stack([ux, uy, sxx, syy, szz, sxy]))
+            
+            sxx = L11**2
+            sxy = L11 * L21
+            sxz = L11 * L31
+            syy = L21**2 + L22**2
+            syz = L21 * L31 + L22 * L32
+            szz = L31**2 + L32**2 + L33**2
+            
+            p_3d = self.apply_symmetries(xb[i], yb[i], zb[i], jnp.stack([ux, uy, sxx, syy, szz, sxy, sxz, syz]))
             
             scale = 0.2108 / dist[i]
             # Add Pattern Speed Rotation dynamically: v_bar = v_stream + omega x r
             ux_total = p_3d[0] + omega * yb[i]
             uy_total = p_3d[1] - omega * xb[i]
             mu_b_pm = (P_pm @ jnp.stack([ux_total, uy_total, 0.0]) + v_off_pm) * scale
-            c1 = jnp.stack([p_3d[2], p_3d[5], 0.0])
-            c2 = jnp.stack([p_3d[5], p_3d[3], 0.0])
-            c3 = jnp.stack([0.0, 0.0, p_3d[4]])
-            cov_3d = jnp.stack([c1, c2, c3])
+            
+            cov_3d = jnp.array([
+                [p_3d[2], p_3d[5], p_3d[6]],
+                [p_3d[5], p_3d[3], p_3d[7]],
+                [p_3d[6], p_3d[7], p_3d[4]]
+            ])
+            
             cov_b_pm = (P_pm @ cov_3d @ P_pm.T) * (scale**2)
             mu_b_rv = P_rad @ jnp.stack([ux_total, uy_total, 0.0]) + v_off_rad
             var_b_rv = P_rad @ cov_3d @ P_rad.T
@@ -219,20 +236,29 @@ class BulgeKinematicInverter:
         
         def evaluate_distance_slice(i):
             p_chol = self.interpolate_octant(xb[i], yb[i], zb[i], grid_params)
-            ux, uy, log_L11, L21, log_L22, log_L33 = p_chol
+            ux, uy, log_L11, L21, log_L22, L31, L32, log_L33 = p_chol
             L11, L22, L33 = jnp.exp(log_L11), jnp.exp(log_L22), jnp.exp(log_L33)
-            sxx, sxy, syy, szz = L11**2, L11*L21, L21**2 + L22**2, L33**2
-            p_3d = self.apply_symmetries(xb[i], yb[i], zb[i], jnp.stack([ux, uy, sxx, syy, szz, sxy]))
+            
+            sxx = L11**2
+            sxy = L11 * L21
+            sxz = L11 * L31
+            syy = L21**2 + L22**2
+            syz = L21 * L31 + L22 * L32
+            szz = L31**2 + L32**2 + L33**2
+            
+            p_3d = self.apply_symmetries(xb[i], yb[i], zb[i], jnp.stack([ux, uy, sxx, syy, szz, sxy, sxz, syz]))
             
             scale = 0.2108 / dist[i]
             ux_total = p_3d[0] + omega * yb[i]
             uy_total = p_3d[1] - omega * xb[i]
             mu_b_pm = (P_pm @ jnp.stack([ux_total, uy_total, 0.0]) + v_off_pm) * scale
             
-            c1 = jnp.stack([p_3d[2], p_3d[5], 0.0])
-            c2 = jnp.stack([p_3d[5], p_3d[3], 0.0])
-            c3 = jnp.stack([0.0, 0.0, p_3d[4]])
-            cov_3d = jnp.stack([c1, c2, c3])
+            cov_3d = jnp.array([
+                [p_3d[2], p_3d[5], p_3d[6]],
+                [p_3d[5], p_3d[3], p_3d[7]],
+                [p_3d[6], p_3d[7], p_3d[4]]
+            ])
+            
             cov_b_pm = (P_pm @ cov_3d @ P_pm.T) * (scale**2) + jnp.eye(2) * 1e-6
             
             pdf_b = jstats.multivariate_normal.pdf(obs_mu, mean=mu_b_pm, cov=cov_b_pm)
@@ -258,6 +284,9 @@ class BulgeKinematicInverter:
         C_par_r, C_perp_r = p_kosh[14], p_kosh[15]
         C_par_z, C_perp_z = p_kosh[16], p_kosh[17]
         
+        # Scale it down so the optimizer can take normal sized steps
+        rho_xy = p_kosh[18] / 100.0
+        
         dist = pixel_meta['d']
         l_deg, b_deg = pixel_meta['l'], pixel_meta['b']
         xb, yb, zb = pixel_meta['x_bar'], pixel_meta['y_bar'], pixel_meta['z_bar']
@@ -276,17 +305,28 @@ class BulgeKinematicInverter:
         sig_y = sig_i0_y + sig_i1_y * jnp.exp(-s_r)
         sig_z = sig_i0_z + sig_i1_z * jnp.exp(-s_z)
         
+        cov_xy = rho_xy * sig_x * sig_y * jnp.sign(xb) * jnp.sign(yb)
+        
         scale = 0.2108 / dist
         mu_b_pm_s = (v_bar_s @ P_pm.T + v_off_pm) * scale[:, None]
         mu_b_rv_s = v_bar_s @ P_rad + v_off_rad
         
         # Covariance projection
-        c11 = (sig_x**2 * P_pm[0,0]**2 + sig_y**2 * P_pm[0,1]**2 + sig_z**2 * P_pm[0,2]**2) * scale**2
-        c12 = (sig_x**2 * P_pm[0,0]*P_pm[1,0] + sig_y**2 * P_pm[0,1]*P_pm[1,1] + sig_z**2 * P_pm[0,2]*P_pm[1,2]) * scale**2
-        c22 = (sig_x**2 * P_pm[1,0]**2 + sig_y**2 * P_pm[1,1]**2 + sig_z**2 * P_pm[1,2]**2) * scale**2
+        sig_x2, sig_y2, sig_z2 = sig_x**2, sig_y**2, sig_z**2
+        
+        c11 = (sig_x2 * P_pm[0,0]**2 + sig_y2 * P_pm[0,1]**2 + sig_z2 * P_pm[0,2]**2 + 
+               2.0 * P_pm[0,0] * P_pm[0,1] * cov_xy) * scale**2
+               
+        c12 = (sig_x2 * P_pm[0,0]*P_pm[1,0] + sig_y2 * P_pm[0,1]*P_pm[1,1] + sig_z2 * P_pm[0,2]*P_pm[1,2] + 
+              (P_pm[0,0]*P_pm[1,1] + P_pm[0,1]*P_pm[1,0]) * cov_xy) * scale**2
+              
+        c22 = (sig_x2 * P_pm[1,0]**2 + sig_y2 * P_pm[1,1]**2 + sig_z2 * P_pm[1,2]**2 + 
+               2.0 * P_pm[1,0] * P_pm[1,1] * cov_xy) * scale**2
+               
         cov_b_pm_s = jnp.stack([jnp.stack([c11, c12], axis=-1), jnp.stack([c12, c22], axis=-1)], axis=-2)
         
-        var_b_rv_s = (sig_x**2 * P_rad[0]**2 + sig_y**2 * P_rad[1]**2 + sig_z**2 * P_rad[2]**2)
+        var_b_rv_s = (sig_x2 * P_rad[0]**2 + sig_y2 * P_rad[1]**2 + sig_z2 * P_rad[2]**2 + 
+                      2.0 * P_rad[0] * P_rad[1] * cov_xy)
             
         rb_sb, rd_sb = jnp.atleast_2d(pixel_meta['rho_b']), jnp.atleast_2d(pixel_meta['rho_d'])
         mu_d_pm_sb = jnp.atleast_3d(pixel_meta['mu_d_pm'])
@@ -349,9 +389,9 @@ class BulgeKinematicInverter:
         v_str_prior = 50.0 * (1.0 - jnp.exp(-(Y / 0.34)**2))
         R = jnp.sqrt(X**2 + Y**2)
         sigma_prior = 130.0 * jnp.exp(-R / 1.5) + 60.0
-        ux, uy, log_L11, L21, log_L22, log_L33 = grid_params[..., 0], grid_params[..., 1], grid_params[..., 2], grid_params[..., 3], grid_params[..., 4], grid_params[..., 5]
-        L11_sq, L22_sq, L33_sq, L21_sq = jnp.exp(2 * log_L11), jnp.exp(2 * log_L22), jnp.exp(2 * log_L33), L21**2
-        tr_sigma = L11_sq + L21_sq + L22_sq + L33_sq
+        ux, uy, log_L11, L21, log_L22, L31, L32, log_L33 = [grid_params[..., i] for i in range(8)]
+        L11_sq, L22_sq, L33_sq, L21_sq, L31_sq, L32_sq = jnp.exp(2 * log_L11), jnp.exp(2 * log_L22), jnp.exp(2 * log_L33), L21**2, L31**2, L32**2
+        tr_sigma = L11_sq + (L21_sq + L22_sq) + (L31_sq + L32_sq + L33_sq)
         mu_sq = (ux - v_str_prior)**2 + uy**2
         log_det_sigma = 2 * (log_L11 + log_L22 + log_L33)
         kl = 0.5 * ((tr_sigma + mu_sq) / (sigma_prior**2) - 3 + 6 * jnp.log(sigma_prior) - log_det_sigma)
@@ -395,7 +435,7 @@ class BulgeKinematicInverter:
             nll_rv = jnp.mean(vmap(lambda i: jnp.sum(vmap(lambda k: bin_loss_rv(i, k))(jnp.arange(self.n_bins))))(jnp.arange(n_pixels)))
         
         curv_reg = 0.0
-        for p in range(6):
+        for p in range(8):
             field = grid_params[..., p]
             curv_reg += jnp.mean(jnp.diff(field, n=2, axis=0)**2) + jnp.mean(jnp.diff(field, n=2, axis=1)**2) + jnp.mean(jnp.diff(field, n=2, axis=2)**2)
             
@@ -403,6 +443,10 @@ class BulgeKinematicInverter:
         omega_p = 0.5 * ((omega - 37.67) / 0.53)**2
         total_loss = nll_pm + rv_weight * nll_rv + self.curv_weight * curv_reg + self.kl_weight * kl_p + omega_p
         return total_loss, (nll_pm, nll_rv, self.kl_weight * kl_p, self.curv_weight * curv_reg, omega_p)
+
+if __name__ == "__main__":
+    print("Binned NLL Inverter Ready.")
+
 
 if __name__ == "__main__":
     print("Binned NLL Inverter Ready.")

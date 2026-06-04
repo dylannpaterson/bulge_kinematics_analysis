@@ -172,7 +172,13 @@ def run_obs_analysis() -> None:
             # Extinction and RC Cut
             a_ks_local = get_surot_a_ks(l_center, b_center)[0]
             df["ks0"] = df["phot_ks_mean_mag"] - a_ks_local
-            data = df[(df["ks0"] > 12.0) & (df["ks0"] < 14.0)].copy()
+            
+            # Dereddened color (A_J/A_Ks ~ 3.524 for SODC R_V=2.5 law)
+            df["j_ks_0"] = df["j_ks"] - (3.524 - 1.0) * a_ks_local
+            
+            # Apply magnitude AND color cuts
+            data = df[(df["ks0"] > 12.0) & (df["ks0"] < 14.0) & 
+                      (df["j_ks_0"] > 0.4)].copy()
             data = data.dropna(subset=["j_ks", "h_ks", "pm_l", "pm_b"])
 
             # Quality and Sigma Cuts

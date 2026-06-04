@@ -65,12 +65,11 @@ def get_synthpop_total_density(model_name="Huston2025_C20Bulge"):
 N_HIST_BINS = 60
 
 
-def make_step_data(values, bins):
+def make_step_data(values, bins, scale=1.0):
     """Return (x, y) for a blittable step histogram line."""
     counts, _ = np.histogram(values, bins=bins)
-    peak = counts.max()
-    if peak > 0:
-        counts = counts / peak
+    if scale > 0:
+        counts = counts / scale
     x = np.repeat(bins, 2)
     y = np.concatenate([[0], np.repeat(counts, 2), [0]])
     return x, y
@@ -79,27 +78,11 @@ def make_step_data(values, bins):
 def setup_panel(outer_gs_cell, fig, DARK, GRID_C,
                 title, xlabel, ylabel, xlim, ylim):
     """
-    2×2 inner GridSpec: top-hist | (empty) / main_ax | right_hist.
-    Returns (main_ax, top_ax, right_ax).
+    Create a panel with equal-aspect main axis and perfectly aligned top and right
+    marginal subplots using make_axes_locatable.
     """
-    inner = gridspec.GridSpecFromSubplotSpec(
-        2, 2,
-        subplot_spec=outer_gs_cell,
-        width_ratios=[5, 1],
-        height_ratios=[1, 5],
-        hspace=0.04,
-        wspace=0.04,
-    )
-    ax_top   = fig.add_subplot(inner[0, 0])
-    ax_main  = fig.add_subplot(inner[1, 0])
-    ax_right = fig.add_subplot(inner[1, 1])
-
-    for ax in (ax_top, ax_right):
-        ax.set_facecolor(DARK)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        for spine in ax.spines.values():
-            spine.set_visible(False)
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    ax_main = fig.add_subplot(outer_gs_cell)
 
     ax_main.set_facecolor(DARK)
     ax_main.grid(True, color=GRID_C, linestyle=':', alpha=0.4)
@@ -109,8 +92,20 @@ def setup_panel(outer_gs_cell, fig, DARK, GRID_C,
     ax_main.set_xlim(*xlim)
     ax_main.set_ylim(*ylim)
 
+    # Use make_axes_locatable to append top and right axes to match ax_main's active area
+    divider = make_axes_locatable(ax_main)
+    ax_top = divider.append_axes("top", size="18%", pad=0.04, sharex=ax_main)
+    ax_right = divider.append_axes("right", size="18%", pad=0.04, sharey=ax_main)
+
+    for ax in (ax_top, ax_right):
+        ax.set_facecolor(DARK)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+    # Title above top histogram
     ax_top.set_title(title, fontsize=11, fontweight='bold', color='white', pad=4)
-    ax_top.set_facecolor(DARK)
     ax_top.set_xlim(*xlim)
     ax_top.set_ylim(0, 1.15)
 
@@ -135,12 +130,26 @@ def main():
     print("Loading SynthPop densities & building potential...")
     total_density = get_synthpop_total_density("Huston2025_C20Bulge")
 
-    print("Generating Agama potential...")
-    full_pot = agama.Potential(type='Multipole', density=total_density, lmax=16, symmetry='triaxial',
-                               gridsizeR=100, rmin=0.01, rmax=50.0)
+    print("Generating Agama potential (stellar multipole + NFW DM halo)...")
+    stellar_pot = agama.Potential(type='Multipole', density=total_density, lmax=16, symmetry='triaxial',
+                                  gridsizeR=100, rmin=0.01, rmax=50.0)
+    dm_pot = agama.Potential(type='NFW', mass=1.0e12, scaleRadius=16.0)
+    full_pot = agama.Potential(stellar_pot, dm_pot)
 
-    # Pattern speed from NP model
-    omega = 37.67  # km/s/kpc
+    # Load pattern speed omega dynamically from the kinematic fit results
+    refined_fit_path = os.path.join(project_root, "results/inversion/fit_results_refined_continuity.npz")
+    combined_fit_path = os.path.join(project_root, "results/inversion/fit_results_obs_combined_h25c20.npz")
+    if os.path.exists(refined_fit_path):
+        fit_data = np.load(refined_fit_path)
+        omega = float(fit_data['omega'])
+        print(f"Loaded pattern speed Omega={omega:.2f} km/s/kpc dynamically from refined fit results.")
+    elif os.path.exists(combined_fit_path):
+        fit_data = np.load(combined_fit_path)
+        omega = float(fit_data['omega'])
+        print(f"Loaded pattern speed Omega={omega:.2f} km/s/kpc dynamically from combined fit results.")
+    else:
+        omega = 37.67  # Fallback
+        print(f"Warning: Kinematic fit results not found. Using fallback Omega={omega:.2f} km/s/kpc.")
 
     is_fast = os.environ.get("FAST_TEST") == "1"
     n_sample = 100 if is_fast else 30000
@@ -151,7 +160,7 @@ def main():
     print(f"Integrating {n_sample} M2M-weighted orbits...")
     n_orbit_steps = 10 if is_fast else 400
     total_time = 0.4  # ~ 400 Myr
-    trajs = agama.orbit(potential=full_pot, ic=sampled_ics, time=total_time, trajsize=n_orbit_steps, Omega=omega)
+    trajs = agama.orbit(potential=full_pot, ic=sampled_ics, time=total_time, trajsize=n_orbit_steps, Omega=-omega)
 
     # Coordinates: shape (n_sample, n_orbit_steps, 6)
     coords = np.stack([trajs[p][1] for p in range(n_sample)])
@@ -173,6 +182,7 @@ def main():
           f"(Fraction = {n_gold / n_sample * 100:.1f}%)")
 
     initial_phases = np.random.randint(0, n_orbit_steps, size=n_sample)
+    dt_frame = total_time / n_orbit_steps
 
     # ─────────────────────────────────────────────────────────
     # Figure layout with marginal histograms
@@ -248,21 +258,24 @@ def main():
     dots_magenta_xz, = axs_main[1].plot([], [], 'o', color='#ff33aa', markersize=0.6, alpha=0.45)
     dots_magenta_yz, = axs_main[2].plot([], [], 'o', color='#ff33aa', markersize=0.6, alpha=0.45)
 
-    # Stationary bar ellipse and X-shape guide lines
-    bar_xy = Ellipse((0, 0), width=5.0, height=2.4, color='#ff9944', fill=False,
-                     linestyle='--', linewidth=1.2, alpha=0.7, label='Stationary Bar')
-    axs_main[0].add_artist(bar_xy)
-    axs_main[0].legend(facecolor=DARK, edgecolor=GRID_C, loc='upper right', fontsize=8)
+    # Stationary bar ellipse removed as requested
 
     axs_main[1].plot([-2.0, 2.0], [-1.0,  1.0], color='#ff4444', linestyle=':', alpha=0.3, linewidth=1.0, label='X-shape guide')
     axs_main[1].plot([-2.0, 2.0], [ 1.0, -1.0], color='#ff4444', linestyle=':', alpha=0.3, linewidth=1.0)
     axs_main[1].legend(facecolor=DARK, edgecolor=GRID_C, loc='upper right', fontsize=8)
 
     plt.suptitle(
-        "N-Body Stellar Flow in the Stationary Rotating Bar Frame\n"
-        "(Gold/Magenta = prograde/retrograde X-shape peanut orbits; "
-        "Marginals show per-population density)",
+        f"N-Body Stellar Flow in the Stationary Rotating Bar Frame ($\\Omega_p = {omega:.2f}$ km/s/kpc)\n"
+        "(Gold/Magenta = prograde/retrograde X-shape peanut orbits; Marginals show per-population density)",
         fontsize=12, fontweight='bold', y=0.97, color='white'
+    )
+
+    # Dynamic time label
+    time_text = axs_main[0].text(
+        0.05, 0.95, '',
+        transform=axs_main[0].transAxes,
+        color='white', fontsize=10, fontweight='bold',
+        bbox=dict(facecolor='black', alpha=0.6, edgecolor=GRID_C, boxstyle='round,pad=0.3')
     )
 
     # Trail buffers
@@ -292,14 +305,19 @@ def main():
         dots_magenta_xy, dots_magenta_xz, dots_magenta_yz,
     ]
     hist_artists = [line for panel in top_step_lines + right_step_lines for line in panel]
-    all_artists = scatter_artists + hist_artists
+    all_artists = scatter_artists + hist_artists + [time_text]
 
     def init():
-        for art in all_artists:
+        for art in scatter_artists:
             art.set_data([], [])
+        for art in hist_artists:
+            art.set_data([], [])
+        time_text.set_text('')
         return all_artists
 
     def update(frame):
+        t_Myr = frame * dt_frame * 977.8
+        time_text.set_text(f"t = {t_Myr:.1f} Myr")
         trail_indices = (initial_phases[:, None] + frame - np.arange(n_tail)[None, :]) % n_orbit_steps
         pos_trail_bar = coords[np.arange(n_sample)[:, None], trail_indices, :]
         vx_bar_current = pos_trail_bar[:, 0, 3]
@@ -359,18 +377,37 @@ def main():
 
         for pi in range(3):
             bins_x, bins_y = hist_bins[pi]
+            
+            # Find global peak count for horizontal (top) histogram across all 3 pops
+            peak_x = 0.0
+            for pop_i in range(3):
+                hx = panel_horiz[pi][pop_i]
+                if len(hx) > 0:
+                    counts_x, _ = np.histogram(hx, bins=bins_x)
+                    if counts_x.max() > peak_x:
+                        peak_x = counts_x.max()
+            
+            # Find global peak count for vertical (right) histogram across all 3 pops
+            peak_y = 0.0
+            for pop_i in range(3):
+                hy = panel_vert[pi][pop_i]
+                if len(hy) > 0:
+                    counts_y, _ = np.histogram(hy, bins=bins_y)
+                    if counts_y.max() > peak_y:
+                        peak_y = counts_y.max()
+
             for pop_i in range(3):
                 hx = panel_horiz[pi][pop_i]
                 hy = panel_vert[pi][pop_i]
 
-                if len(hx) > 1:
-                    sx, sy = make_step_data(hx, bins_x)
+                if len(hx) > 1 and peak_x > 0:
+                    sx, sy = make_step_data(hx, bins_x, scale=peak_x)
                     top_step_lines[pi][pop_i].set_data(sx, sy)
                 else:
                     top_step_lines[pi][pop_i].set_data([], [])
 
-                if len(hy) > 1:
-                    sy2, sy2_c = make_step_data(hy, bins_y)
+                if len(hy) > 1 and peak_y > 0:
+                    sy2, sy2_c = make_step_data(hy, bins_y, scale=peak_y)
                     right_step_lines[pi][pop_i].set_data(sy2_c, sy2)
                 else:
                     right_step_lines[pi][pop_i].set_data([], [])

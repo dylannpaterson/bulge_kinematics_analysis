@@ -28,7 +28,7 @@ from inversion_config import get_inverter_grid_axes
 # ---------------------------------------------------------------------------
 
 def get_bulge_density_model(
-    model_name: str = "Besancon_Coleman2020_symmetric",
+    model_name: str = "Huston2025_C20Bulge",
 ) -> callable:
     """
     Build a bulge-only density evaluator from a SynthPop model.
@@ -193,7 +193,7 @@ def main() -> None:
     axes_z = fit_res["axes_z"]
 
     print("Loading Huston-Coleman density from SynthPop...")
-    bulge_density = get_bulge_density_model("Besancon_Coleman2020_symmetric")
+    bulge_density = get_bulge_density_model("Huston2025_C20Bulge")
 
     # 3. Create regular 3D grid for divergence analysis
     nx, ny, nz = 50, 50, 20
